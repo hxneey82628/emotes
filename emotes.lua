@@ -6079,23 +6079,45 @@ player.CharacterAdded:Connect(function(char)
 end)
 
 
+local _lastColorUpdate = 0
+local _lastEnforceUpdate = 0
+local _colorUpdateInterval = 0.5   -- update colors max twice per second
+local _enforceInterval = 0.1       -- enforce images max 10x per second
+ 
 RunService.Heartbeat:Connect(function()
     if not State.isGUICreated then
         checkAndRecreateGUI()
-    else
-        updateGUIColors()
+        return
+    end
+ 
+    local now = tick()
+ 
+    -- Only update colors if enough time has passed
+    if now - _lastColorUpdate >= _colorUpdateInterval then
+        _lastColorUpdate = now
+        -- Only call if there's actually a theme to apply
+        if State.EmoteTheme then
+            updateGUIColors()
+        end
+    end
+ 
+    -- Only enforce images if there are target images AND throttled
+    if next(State.targetImages) ~= nil and now - _lastEnforceUpdate >= _enforceInterval then
+        _lastEnforceUpdate = now
         enforceImages()
     end
 end)
 
 RunService.Stepped:Connect(function()
-    if humanoid and State.currentEmoteTrack and typeof(State.currentEmoteTrack) == "Instance" and State.currentEmoteTrack:IsA("AnimationTrack") and State.currentEmoteTrack.IsPlaying then
-        if humanoid.MoveDirection.Magnitude > 0 then
-            if State.speedEmoteEnabled and not State.emotesWalkEnabled then
-                State.currentEmoteTrack:Stop()
-                State.currentEmoteTrack = nil
-            end
-        end
+    if not State.speedEmoteEnabled then return end
+    if State.emotesWalkEnabled then return end
+    if not State.currentEmoteTrack then return end
+    local track = State.currentEmoteTrack
+    if typeof(track) ~= "Instance" or not track:IsA("AnimationTrack") then return end
+    if not track.IsPlaying then return end
+    if humanoid and humanoid.MoveDirection.Magnitude > 0 then
+        track:Stop()
+        State.currentEmoteTrack = nil
     end
 end)
 
@@ -6108,31 +6130,33 @@ end)
 
 StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
 task.spawn(function()
+    local stableCount = 0
     while true do
         local robloxGui = game:GetService("CoreGui"):FindFirstChild("RobloxGui")
         local emotesMenu = robloxGui and robloxGui:FindFirstChild("EmotesMenu")
-
         if not emotesMenu then
             StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.EmotesMenu, true)
-
+            stableCount = 0
+            task.wait(0.5)
         else
-            local exists = emotesMenu:FindFirstChild("Children") and emotesMenu.Children:FindFirstChild("Main") and
-                               emotesMenu.Children.Main:FindFirstChild("EmotesWheel")
-
+            local exists = emotesMenu:FindFirstChild("Children")
+                and emotesMenu.Children:FindFirstChild("Main")
+                and emotesMenu.Children.Main:FindFirstChild("EmotesWheel")
             if exists then
                 local emotesWheel = emotesMenu.Children.Main.EmotesWheel
                 if not emotesWheel:FindFirstChild("Under") or not emotesWheel:FindFirstChild("Top") then
-                    if createGUIElements then
-                        createGUIElements()
-                        loadSpeedEmoteConfig()
-                    end
+                    stableCount = 0
+                    if createGUIElements then createGUIElements(); loadSpeedEmoteConfig() end
                     updateGUIColors()
                     updatePageDisplay()
+                else
+                    stableCount = stableCount + 1
                 end
+            else
+                stableCount = 0
             end
+            if stableCount > 10 then task.wait(2) else task.wait(0.5) end
         end
-
-        task.wait(0.3)
     end
 end)
 
